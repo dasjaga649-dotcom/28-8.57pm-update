@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#000000" />
+  <meta name="description" content="Web site created using create-react-app" />
+  <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- marked.js for Markdown to HTML conversion -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <!--
+      manifest.json provides metadata used when your web app is installed on a
+      user's mobile device or desktop. See https://developers.google.com/web/fundamentals/web-app-manifest/
+    -->
+  <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
+  <!--
+      Notice the use of %PUBLIC_URL% in the tags above.
+      It will be replaced with the URL of the `public` folder during the build.
+      Only files inside the `public` folder can be referenced from the HTML.
+
+      Unlike "/favicon.ico" or "favicon.ico", "%PUBLIC_URL%/favicon.ico" will
+      work correctly both with client-side routing and a non-root public URL.
+      Learn how to configure a non-root public URL by running `npm run build`.
+    -->
+  <script>
+    const chatForm = document.getElementById('chat-form');
+    const chatHistory = document.getElementById('chat-history');
+    const userInput = document.getElementById('user-input');
+
+    chatForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const userQuery = userInput.value.trim();
+      if (!userQuery) return;
+
+      // Display user's message
+      appendUserMessage(userQuery);
+
+      // Display loading indicator
+      const loadingMessage = createLoadingBubble();
+      chatHistory.appendChild(loadingMessage);
+      window.scrollTo(0, document.body.scrollHeight);
+      userInput.value = '';
+
+      try {
+        // Mock API call to a local server
+        const response = await fetch('http://localhost:3001/query', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ query: userQuery }),
+        });
+
+        if (!response.ok) {
+          throw new Error('Network response was not ok');
+        }
+
+        const data = await response.json();
+        const botResponse = data.response;
+
+        // Remove loading indicator
+        chatHistory.removeChild(loadingMessage);
+
+        // Display chatbot's response
+        appendBotResponse(botResponse);
+        window.scrollTo(0, document.body.scrollHeight);
+
+      } catch (error) {
+        console.error('Error fetching response:', error);
+        chatHistory.removeChild(loadingMessage);
+        appendBotResponse({
+          answer: 'Error: Could not connect to the server or get a response.',
+          related_content: [],
+          recommendations: [],
+          file_links: [],
+          tables: []
+        });
+        window.scrollTo(0, document.body.scrollHeight);
+      }
+    });
+
+    function appendUserMessage(text) {
+      const bubbleWrapper = document.createElement('div');
+      bubbleWrapper.classNameName = 'flex justify-end';
+
+      const messageContent = document.createElement('div');
+      messageContent.classNameName = 'rounded-xl rounded-br-none p-4 shadow-md chat-bubble-user prose text-sm max-w-lg';
+      messageContent.innerHTML = marked.parse(text);
+
+      bubbleWrapper.appendChild(messageContent);
+      chatHistory.appendChild(bubbleWrapper);
+      window.scrollTo(0, document.body.scrollHeight);
+    }
+
+    function appendBotResponse(response) {
+      const responseWrapper = document.createElement('div');
+      responseWrapper.classNameName = 'flex items-start justify-center';
+
+      const contentContainer = document.createElement('div');
+      contentContainer.classNameName = 'max-w-3xl w-full';
+
+      // --- 1. Related Content Card Carousel ---
+      if (response.related_content && response.related_content.length > 0) {
+        const relatedLinksDiv = document.createElement('div');
+        relatedLinksDiv.classNameName = 'w-full mb-6';
+
+        const heading = document.createElement('h5');
+        heading.classNameName = 'font-semibold text-gray-800 mb-2 px-4';
+        heading.textContent = 'Related content';
+        relatedLinksDiv.appendChild(heading);
+
+        const carouselContainerHTML = createCardCarousel(response.related_content);
+        relatedLinksDiv.innerHTML += carouselContainerHTML;
+
+        contentContainer.appendChild(relatedLinksDiv);
+      }
+
+      // --- 2. Main Answer (with Markdown and tables) ---
+      if (response.answer) {
+        const answerDiv = document.createElement('div');
+        answerDiv.classNameName = 'p-4 rounded-xl prose text-gray-800'; /* bg-white and shadow-sm removed */
+
+        // Preprocess the raw text to fix common markdown issues
+        const preprocessedAnswer = preprocessResponse(response.answer);
+
+        // Then, render any tables and icons
+        const processedAnswerWithTables = renderTables(preprocessedAnswer, response.tables);
+        const processedAnswerWithIcons = renderIcons(processedAnswerWithTables);
+
+        // Finally, parse the markdown and insert into the HTML.
+        answerDiv.innerHTML = marked.parse(processedAnswerWithIcons);
+
+        // Attach onerror handler to images
+        const images = answerDiv.querySelectorAll('img');
+        images.forEach(img => {
+          img.onerror = () => {
+            // Silently handle broken images - hide them instead of removing
+            img.style.display = 'none';
+          };
+        });
+        contentContainer.appendChild(answerDiv);
+      }
+
+      // --- 3. File Links ---
+      if (response.file_links && response.file_links.length > 0) {
+        const filesDiv = document.createElement('div');
+        filesDiv.classNameName = 'mt-6';
+
+        const heading = document.createElement('h5');
+        heading.classNameName = 'font-semibold text-gray-800 mb-2 px-4';
+        heading.textContent = 'Files';
+        filesDiv.appendChild(heading);
+
+        response.file_links.forEach(item => {
+          const link = document.createElement('a');
+          link.href = item.url;
+          link.target = '_blank';
+          link.classNameName = 'flex items-center gap-2 p-3 my-1 rounded-lg hover:bg-gray-100 transition-colors duration-200';
+          link.innerHTML = `
+        <svg xmlns="http://www.w3.0/2000/svg" className="h-5 w-5 text-gray-500" viewBox="0 0 20 20" fill="currentColor">
+          <path d="M4 4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V8a2 2 0 00-2-2h-5L9 4H4z" />
+        </svg>
+        <span className="text-sm font-medium text-gray-700">${item.title}</span>
+        `;
+          filesDiv.appendChild(link);
+        });
+
+        contentContainer.appendChild(filesDiv);
+      }
+
+      // --- 4. Suggested Questions ---
+      if (response.recommendations && response.recommendations.length > 0) {
+        const suggestionsDiv = document.createElement('div');
+        suggestionsDiv.classNameName = 'mt-6';
+
+        const heading = document.createElement('h5');
+        heading.classNameName = 'font-semibold text-gray-800 mb-2 px-4';
+        heading.textContent = 'Suggested Questions';
+        suggestionsDiv.appendChild(heading);
+
+        response.recommendations.forEach(rec => {
+          const button = document.createElement('button');
+          button.textContent = rec;
+          button.classNameName = 'suggestion-button block w-full text-left p-4 my-2 bg-gray-50 rounded-lg border border-gray-200 text-sm text-gray-700 shadow-sm hover:bg-gray-100';
+          button.onclick = () => {
+            userInput.value = rec;
+            chatForm.dispatchEvent(new Event('submit'));
+          };
+          suggestionsDiv.appendChild(button);
+        });
+        contentContainer.appendChild(suggestionsDiv);
+      }
+
+      responseWrapper.appendChild(contentContainer);
+      chatHistory.appendChild(responseWrapper);
+
+      // Add carousel navigation and image error handling after appending to DOM
+      const carouselWrapper = contentContainer.querySelector('.related-content-carousel-wrapper');
+      if (carouselWrapper) {
+        const carouselContainer = carouselWrapper.querySelector('.related-content-horizontal-container');
+        const leftButton = carouselWrapper.querySelector('.carousel-nav-left');
+        const rightButton = carouselWrapper.querySelector('.carousel-nav-right');
+
+        // Scroll functionality
+        if (leftButton && carouselContainer) {
+          leftButton.onclick = () => {
+            carouselContainer.scrollBy({ left: -200, behavior: 'smooth' });
+          };
+        }
+
+        if (rightButton && carouselContainer) {
+          rightButton.onclick = () => {
+            carouselContainer.scrollBy({ left: 200, behavior: 'smooth' });
+          };
+        }
+
+        // Handle scroll button states
+        const updateScrollButtons = () => {
+          if (carouselContainer && leftButton && rightButton) {
+            const { scrollLeft, scrollWidth, clientWidth } = carouselContainer;
+            const canScrollLeft = scrollLeft > 0;
+            const canScrollRight = scrollLeft < scrollWidth - clientWidth - 1;
+
+            leftButton.disabled = !canScrollLeft;
+            rightButton.disabled = !canScrollRight;
+
+            leftButton.className = `carousel-nav-button carousel-nav-left ${!canScrollLeft ? 'disabled' : ''}`;
+            rightButton.className = `carousel-nav-button carousel-nav-right ${!canScrollRight ? 'disabled' : ''}`;
+          }
+        };
+
+        if (carouselContainer) {
+          carouselContainer.addEventListener('scroll', updateScrollButtons);
+          updateScrollButtons(); // Initial check
+        }
+
+        // Image error handling
+        const imagesInCarousel = carouselContainer.querySelectorAll('.favicon-image');
+        imagesInCarousel.forEach(img => {
+          img.onerror = () => {
+            // Replace with fallback icon if image fails
+            img.style.display = 'none';
+            const fallback = img.parentElement.querySelector('.favicon-fallback');
+            if (fallback) fallback.style.display = 'flex';
+          };
+        });
+      }
+    }
+
+    function createLoadingBubble() {
+      const bubble = document.createElement('div');
+      bubble.id = 'loading-indicator';
+      bubble.classNameName = 'flex justify-start';
+      bubble.innerHTML = `
+        <div className="rounded-xl rounded-bl-none p-4 shadow-md max-w-sm bg-white">
+          <div className="flex space-x-2 animate-pulse">
+            <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
+            <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
+            <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
+          </div>
+        </div>
+        `;
+      return bubble;
+    }
+
+    // Function to validate if image URL is potentially valid
+    function isValidImageUrl(url) {
+      if (!url || url === "No image found.") return false;
+      try {
+        const urlObj = new URL(url);
+        // Basic validation: should be http/https and have common image extensions
+        const validExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.svg', '.webp'];
+        const hasValidExtension = validExtensions.some(ext =>
+          urlObj.pathname.toLowerCase().includes(ext)
+        );
+        return (urlObj.protocol === 'http:' || urlObj.protocol === 'https:') && hasValidExtension;
+      } catch {
+        return false;
+      }
+    }
+
+    // Function to get favicon URL for a website
+    function getFaviconUrl(websiteUrl) {
+      try {
+        const urlObj = new URL(websiteUrl);
+        const domain = urlObj.hostname;
+        // Use Google's favicon service for reliable favicon fetching
+        return `https://www.google.com/s2/favicons?domain=${domain}&sz=16`;
+      } catch {
+        return '';
+      }
+    }
+
+    function createCardCarousel(items) {
+      const itemsHtml = items.map(item => `
+        <a href="${item.url}" target="_blank" className="related-content-mini-card">
+          <div className="mini-card-favicon">
+            <img src="${getFaviconUrl(item.url)}" alt="${new URL(item.url).hostname} favicon" className="favicon-image">
+            <div className="favicon-fallback" style="display: none;">🔗</div>
+          </div>
+          <div className="mini-card-content">
+            <div className="mini-card-hostname">${new URL(item.url).hostname.replace('www.', '')}</div>
+            <div className="mini-card-title">${item.title}</div>
+          </div>
+        </a>
+        `).join('');
+
+      return `
+        <div className="related-content-carousel-wrapper">
+          <button className="carousel-nav-button carousel-nav-left">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" className="w-5 h-5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+            </svg>
+          </button>
+          <div className="related-content-horizontal-container">
+            ${itemsHtml}
+          </div>
+          <button className="carousel-nav-button carousel-nav-right">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" className="w-5 h-5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+            </svg>
+          </button>
+        </div>
+        `;
+    }
+
+    /**
+     * Renders HTML tables from structured data and replaces placeholders in the answer.
+     * @param {string} answer The main text of the bot's response.
+    * @param {Array<Object>} tables The array of table data.
+    * @returns {string} The updated answer with HTML tables inserted.
+    */
+    function renderTables(answer, tables) {
+      if (!tables || tables.length === 0) {
+        return answer;
+      }
+
+      let processedAnswer = answer;
+      tables.forEach(table => {
+        const placeholder = `[TABLE:${table.title}]`;
+        if (processedAnswer.includes(placeholder)) {
+          let tableHtml = `<div className="overflow-x-auto my-4">`;
+          tableHtml += `<table className="min-w-full border border-gray-300 rounded-lg overflow-hidden shadow-sm">`;
+          tableHtml += `<caption className="p-2 text-sm text-gray-500 font-medium text-left">${table.title}</caption>`;
+
+          // Table headers
+          if (table.headers && table.headers.length > 0) {
+            tableHtml += `<thead className="bg-gray-100">`;
+            tableHtml += `<tr>${table.headers.map(h => `<th className="p-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">${h}</th>`).join('')}</tr>`;
+            tableHtml += `</thead>`;
+          }
+
+          // Table rows
+          tableHtml += `<tbody className="divide-y divide-gray-200">`;
+          table.rows.forEach(row => {
+            tableHtml += `<tr className="bg-white">`;
+            tableHtml += row.map(cell => `<td className="p-3 text-sm text-gray-800">${cell}</td>`).join('');
+            tableHtml += `</tr>`;
+          });
+          tableHtml += `</tbody>`;
+
+          tableHtml += `</table></div>`;
+
+          processedAnswer = processedAnswer.replace(placeholder, tableHtml);
+        }
+      });
+
+      return processedAnswer;
+    }
+
+    /**
+     * A centralized repository for SVG icon data.
+     * @param {string} iconName The name of the icon to retrieve.
+     * @returns {string} The SVG string for the requested icon, or an empty string if not found.
+     */
+    function getIconSVG(iconName) {
+      const icons = {
+        location: `< svg xmlns = "http://www.w3.org/2000/svg" className = "inline-block w-5 h-5" viewBox = "0 0 24 24" > <path fill="currentColor" d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5S10.62 6.5 12 6.5s2.5 1.12 2.5 2.5S13.38 11.5 12 11.5z" /></svg > `,
+        phone: `< svg xmlns = "http://www.w3.0/2000/svg" className = "inline-block w-5 h-5" fill = "none" viewBox = "0 0 24 24" stroke = "currentColor" > <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2 6.5c1.5-2 4-3 6.5-2l2 2a1 1 0 010 1.4L9 10a12 12 0 005 5l2.1-1.5a1 1 0 011.4 0l2 2c1 2.5 0 5-2 6.5-.6.4-1.4.5-2.1.2C10.2 20.5 3.5 13.8 1.8 6.6c-.3-.7-.2-1.5.2-2.1z" /></svg > `,
+        mobile: `< svg xmlns = "http://www.w3.0/2000/svg" className = "inline-block w-5 h-5" viewBox = "0 0 24 24" > <path fill="currentColor" d="M15.5 1h-7a.5.5 0 00-.5.5v21a.5.5 0 00.5.5h7a.5.5 0 00.5-.5V1.5a.5.5 0 00-.5-.5zM12 22a1 1 0 110-2 1 1 0 010 2z" /></svg > `,
+        email: `< svg xmlns = "http://www.w3.0/2000/svg" className = "inline-block w-5 h-5" fill = "none" viewBox = "0 0 24 24" stroke = "currentColor" ><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5h18a2 2 0 012 2v10a2 2 0 01-2 2H3a2 2 0 01-2-2V7a2 2 0 012-2z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7l9 6 9-6" /></svg > `
+      };
+      return icons[iconName] || '';
+    }
+
+    /**
+     * Renders SVG icons based on special markers in the text.
+     * @param {string} text The text containing the icon markers.
+     * @returns {string} The text with markers replaced by SVG icons.
+     */
+    function renderIcons(text) {
+      return text.replace(/\[ICON:(.*?)]/g, (match, iconName) => {
+        return `< span className = "inline-block align-middle" > ${getIconSVG(iconName.trim())}</span > `;
+      });
+    }
+
+    /**
+     * Preprocesses the raw response text to fix common Markdown formatting issues.
+     * This version is more robust for nested lists and inconsistent spacing.
+     * @param {string} text The raw text input from the backend.
+     * @returns {string} The preprocessed text with correct Markdown formatting.
+     */
+    function preprocessResponse(text) {
+      // Normalize non-breaking spaces and tabs to a single space.
+      let processedText = text.replace(/&nbsp;|\u00A0|\t/g, ' ');
+
+      // Ensure any horizontal rules (---) are on their own line.
+      // This is a more targeted fix that looks for '---' that is not preceded by a newline.
+      processedText = processedText.replace(/([^\n])---/g, '$1\n\n---\n\n');
+
+      // Normalize list items by ensuring a single space after the asterisk.
+      // This also handles nested lists by preserving leading indentation spaces.
+      processedText = processedText.replace(/^(\s*)\*\s+/gm, '$1* ');
+
+      // Ensure a space after a hash for a heading.
+      processedText = processedText.replace(/^(#+)(?! )/gm, '$1 ');
+
+      // Fix blockquotes (>) by ensuring a space after the marker.
+      processedText = processedText.replace(/^(\s*>)(?! )/gm, '$1 ');
+
+      // Trim leading and trailing whitespace from the whole string.
+      return processedText.trim();
+    }
+
+
+    // --- MOCK API RESPONSE DATA FOR DEMONSTRATION ---
+    const MOCK_RESPONSE = {
+      answer: `Hutech Solutions provides a comprehensive range of IT services and solutions designed to help businesses leverage technology for success.Our core service offerings include: \\n\\n *   ** AI / ML **: Transforming businesses through cutting - edge AI / ML solutions, including custom application development, anomaly detection, natural language processing, data - driven IoT solutions, and vision - based computing.\\n *   ** SRE & DevOps Services **: Redefining reliability with affordable, dependable, and tailored DevOps solutions, including comprehensive infrastructure management, cloud platform setup, CI / CD pipeline design, end - to - end release coordination, and advanced monitoring solutions. [TABLE:Price Comparison of SRE & DevOps Services]\\n *   ** Salesforce **: Leveraging custom Salesforce solutions to transform your business.\\n *   ** Banking & Financial Services **: Providing secure, scalable, and tailored solutions to transform financial institutions and elevate customer experiences(BFSI).\\n *   ** Cloud Transformation **: Elevating businesses with seamless cloud transformation, customized for strategy, plans, and execution.\\n *   ** Courier Management Software **: Offering solutions for efficient courier operations.\\n *   ** Fintech Application Development **: Revolutionizing finance with cutting - edge fintech applications, focusing on resilient, scalable, and high - performing solutions.\\n *   ** Blockchain Development **: Building trust and transparency through blockchain technology and creating decentralized applications.\\n *   ** Port Logistic Solutions **: Pioneering progress with effective solutions for port logistics, including comprehensive Port ERP solutions.\\n *   ** Ecommerce Development **: Transforming businesses with custom e - commerce applications and high - performing digital stores.\\n *   ** ERP Implementation **: Boosting operations and efficiency with personalized ERP solutions across various industries.\\n *   ** IOT(Internet of Things) **: Connecting devices for a smarter, seamless future, offering seamless integration of devices and systems for innovation and growth.\\n *   ** Digital Transformation **: Driving innovation with efficient digital transformation services to optimize, automate, and innovate business processes.\\n *   ** Mobile App Development **: Building powerful, intuitive mobile applications for success and enhancing user engagement.\\n *   ** UI / UX **: Elevating user engagement through innovative UI / UX design, combining design and functionality for unforgettable user experiences.\\n\\n-- - `,
+      file_links: [
+        { "title": "Empowering Businesses Through Technology Brochure", "url": "https://hutechsolutions.com/wp-content/uploads/2023/12/Empowering-Businesses-Through-Technology.pdf" },
+        { "title": "High Value Goods Delivery & Tracking Brochure", "url": "https://hutechsolutions.com/wp-content/uploads/2023/12/High-Value-Goods-Delivery-Tracking.pdf" },
+        { "title": "Next-Gen ERP Transform Logistics Efficiency Brochure", "url": "https://hutechsolutions.com/wp-content/uploads/2023/12/Next-Gen-ERP-Transform-Logistics-Efficiency.pdf" },
+        { "title": "Redefining Fleet Oversight Brochure", "url": "https://hutechsolutions.com/wp-content/uploads/2023/12/Redefining-Fleet-Oversight.pdf" }
+      ],
+      recommendations: [
+        "Could you tell me more about our Digital Transformation services?",
+        "What industries do our services cater to?",
+        "How can our AI/ML solutions benefit a specific business type?",
+        "Can you explain the cost savings associated with our SRE & DevOps services?",
+        "How does our Port Logistics solution integrate with existing systems?"
+      ],
+      related_content: [
+        { "image": "No image found.", "title": "Top Digital Transformation & AI/ML Experts in India, USA & UAE", "url": "https://hutechsolutions.com" },
+        { "image": "No image found.", "title": "About Hutech Solutions-Innovation and Excellence in Technology", "url": "https://hutechsolutions.com/about" },
+        { "image": "No image found.", "title": "Brochures | Hutech Solutions", "url": "https://hutechsolutions.com/brochures" },
+        { "image": "No image found.", "title": "Transform Your Business with AI & ML App Development Services.", "url": "https://hutechsolutions.com/ai-ml-app-development-services" },
+        { "image": "No image found.", "title": "SRE & DevOps Services - Hutech Solutions", "url": "https://hutechsolutions.com/sre-devops-services" }
+      ],
+      tables: [
+        { "headers": ["Services Packages", "Hutech Cost (USD)", "Cost of Hiring a Resource (USD)", "Your Savings"], "rows": [["DevOps and Cloud Support Service", "$ 700/month", "$ 2,500+/month", "Save 72%"], ["Release Management Service", "$ 800/month", "$ 3,000+/month", "Save 67%"], ["Site Reliability & Observability", "$ 1,200/month", "$ 3,500+/month", "Save 66%"]], "title": "Price Comparison of SRE & DevOps Services" }
+      ]
+    };
+
+    const newMockResponse = {
+      answer: `You can reach Hutech Solutions using the following contact details and visit our offices at the locations listed below.We guarantee to get back to you within a business day.\\n\\n---\\n\\n ** Contact Information **: \\n *   ** Email **: [ICON: email] sales @hutechsolutions.com\\n *   ** Phone Numbers **: \\n *   ** India(IN) **: [ICON: phone] + 91 90351 80487, +91 88674 87771\\n *   ** USA **: [ICON: phone] + 1(479) 696 1146, +1(201) 793 8555, +1(848) 4683087\\n *   ** Singapore **: [ICON: phone] + 65 86180073\\n\\n-- -\\n\\n ** Office Locations **: \\n\\n *   ** Bengaluru(Corporate Office) **: \\n * [ICON: location] Humantech Solutions India Pvt.Ltd, 163, 1st Floor, 9th Main Rd, Sector 6, HSR Layout, Bengaluru, Karnataka 560102\\n * Alternate Address: 2nd Floor, Humantech Solutions India Pvt.Ltd House, 218, 9th Main Rd, Sector 6, HSR Layout, Bengaluru, Karnataka 560102\\n\\n *   ** Pune **: \\n * [ICON: location] Office No. 713, Tower 2, World Trade Center(WTC), Opp.EON IT Park, Kharadi, Pune, Maharashtra 411014\\n\\n *   ** USA(Bentonville) **: \\n * [ICON: location] 1205, SE 33rd Street, Bentonville, AR 72712\\n\\n *   ** USA(Wilmington) **: \\n * [ICON: location] 3411, Silverside Road, Tatnall Building #104, Wilmington, Delaware, USA – 19810\\n\\n *   ** Ireland **: \\n * [ICON: location] 46 Ridgewood Manor, Melitta Road, Kildare, Ireland - R51 H728\\n\\n *   ** Singapore **: \\n * [ICON: location] 105 Cecil Street, The Octagon, Singapore - 069534\\n\\n-- -\\n\\nOur experts guarantee to get back to you within one business day if you use our contact form on the website.\\n\\n![Contact Hutech Solutions](https://hutechsolutions.com/wp-content/uploads/2023/11/contact-bottom-img.png)\\n"}`
+    };
+
+    const newMockResponse2 = {
+      answer: `Hutech Solutions offers a comprehensive range of IT services and cutting-edge solutions designed to optimize corporate procedures and drive innovation. Our services include:---*   **AI/ML:** Transforming businesses through cutting-edge AI/ML solutions, including AI and ML application development, anomaly detection, natural language processing, data-driven IoT solutions, and vision-based computing.*   **Banking & Financial Services:** Secure, scalable, and tailored solutions to transform financial institutions.*   **Blockchain Development:** Building trust and transparency through blockchain technology.*   **Cloud Transformation:** Elevating businesses with seamless cloud transformation services.*   **Courier Management Software:** Providing solutions for courier and logistics operations.*   **Digital Transformation:** Driving innovation with efficient digital transformation services to optimize, automate, and innovate business processes.*   **Ecommerce Development / Ecommerce App Development:** Transforming businesses with custom e-commerce applications and store development services.*   **ERP Implementation:** Boosting operations and efficiency with personalized ERP solutions, including comprehensive Port ERP solutions.*   **Fintech Application Development:** Revolutionizing finance with cutting-edge fintech applications.*   **IOT (Internet of Things):** Connecting devices for a smarter, seamless future, offering smart solutions for a connected world.*   **Mobile App Development:** Building powerful, intuitive mobile applications for success and enhanced customer engagement.*   **Port Logistic Solutions:** Pioneering progress with effective solutions for port logistics.*   **Salesforce:** Leveraging custom Salesforce solutions to transform businesses.*   **SRE & DevOps Services:** Redefining reliability with comprehensive infrastructure management, cloud platform setup, CI/CD pipeline design, release coordination, and advanced monitoring solutions.*   **UI/UX:** Elevating user engagement through innovative UI/UX design.---We also offer specialized services like **consulting, design, development, support, and software maintenance**, and the option to **hire dedicated software development teams** or individual developers/consultants.`
+    };
+
+    // Override form submission for demonstration purposes
+    chatForm.removeEventListener('submit', async (e) => {
+      e.preventDefault();
+    });
+
+    chatForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const userQuery = userInput.value.trim().toLowerCase();
+      if (!userQuery) return;
+
+      appendUserMessage(userQuery);
+      userInput.value = '';
+
+      const loadingMessage = createLoadingBubble();
+      chatHistory.appendChild(loadingMessage);
+      window.scrollTo(0, document.body.scrollHeight);
+
+      setTimeout(() => {
+        chatHistory.removeChild(loadingMessage);
+        if (userQuery === 'test fix locations') {
+          appendBotResponse(newMockResponse);
+        } else if (userQuery === 'test new fix') {
+          appendBotResponse(newMockResponse2);
+        } else {
+          appendBotResponse(MOCK_RESPONSE);
+        }
+        window.scrollTo(0, document.body.scrollHeight);
+      }, 1000);
+    });
+  </script>
+  <title>React App</title>
+</head>
+
+<body>
+  <noscript>You need to enable JavaScript to run this app.</noscript>
+  <div id="root"></div>
+  <!--
+      This HTML file is a template.
+      If you open it directly in the browser, you will see an empty page.
+
+      You can add webfonts, meta tags, or analytics to this file.
+      The build step will place the bundled scripts into the <body> tag.
+
+      To begin the development, run `npm start` or `yarn start`.
+      To create a production bundle, use `npm run build` or `yarn build`.
+    -->
+</body>
+
+</html>
